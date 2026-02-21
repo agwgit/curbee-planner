@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight, ExternalLink, X } from 'lucide-react';
 
 const TABS = {
   CHAPTER: '01_THIS_CHAPTER',
@@ -97,6 +97,7 @@ function MainApp() {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [passwordFieldShake, setPasswordFieldShake] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState(null);
 
   // Persist to local storage whenever tasks change
   useEffect(() => {
@@ -121,6 +122,7 @@ function MainApp() {
       status: 'Planned',
       window: 'TBD',
       owner: 'Me',
+      link: '',
       notes: '',
       date: new Date().toISOString().split('T')[0],
       whoAsked: 'Amit',
@@ -428,6 +430,11 @@ function MainApp() {
                         </div>
                       </div>
                     )}
+
+                    <div className="mt-4">
+                      <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">External Link</label>
+                      <input type="text" value={editForm.link || ''} onChange={e => setEditForm({ ...editForm, link: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="https://" />
+                    </div>
                   </div>
                 ) : (
                   // --- DISPLAY MODE ---
@@ -473,8 +480,13 @@ function MainApp() {
 
                     {/* Middle: Title & Huge Metric styling */}
                     <div className="mt-8 z-10 flex-grow">
-                      <h3 className="text-2xl md:text-3xl font-medium leading-tight tracking-tight mb-4">
-                        {task.item}
+                      <h3 className="text-2xl md:text-3xl font-medium leading-tight tracking-tight mb-4 flex items-start gap-2">
+                        <span>{task.item}</span>
+                        {task.link && (
+                          <a href={task.link.startsWith('http') ? task.link : `https://${task.link}`} target="_blank" rel="noopener noreferrer" className="mt-1 opacity-50 hover:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
+                            <ExternalLink size={20} />
+                          </a>
+                        )}
                       </h3>
                     </div>
 
@@ -551,7 +563,7 @@ function MainApp() {
                     <span className="text-xs uppercase tracking-widest opacity-80 font-bold mb-3 block">Visual Proof ({task.media.length})</span>
                     <div className="flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-hide">
                       {task.media.map((item, idx) => (
-                        <img key={idx} src={item} alt="Proof" className="h-24 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0" />
+                        <img key={idx} src={item} alt="Proof" onClick={() => setLightboxImage(item)} className="cursor-pointer h-24 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0 hover:scale-105 transition-transform" />
                       ))}
                     </div>
                   </div>
@@ -593,6 +605,16 @@ function MainApp() {
             );
           })}
         </div>
+
+        {/* Lightbox Modal */}
+        {lightboxImage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm" onClick={() => setLightboxImage(null)}>
+            <button className="absolute top-6 right-6 text-white/70 hover:text-white transition-colors" onClick={() => setLightboxImage(null)}>
+              <X size={32} />
+            </button>
+            <img src={lightboxImage} alt="Fullscreen Proof" className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl border border-white/10" onClick={e => e.stopPropagation()} />
+          </div>
+        )}
       </main>
     </div>
   );
