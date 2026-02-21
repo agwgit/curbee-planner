@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight, ExternalLink, X } from 'lucide-react';
+import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight, ExternalLink, X, ArrowLeft } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -576,6 +576,16 @@ function MainApp() {
                             title="Move to Active"
                           >
                             <MoveUpRight size={16} />
+                          </button>
+                        )}
+
+                        {activeTab === TABS.ARCHIVE && (
+                          <button
+                            onClick={() => moveTask(task.id, TABS.CHAPTER)}
+                            className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
+                            title="Restore to Active"
+                          >
+                            <ArrowLeft size={16} />
                           </button>
                         )}
                       </div>
