@@ -490,7 +490,7 @@ function MainApp() {
           </div>
           <h1 className="text-5xl md:text-7xl font-sans font-medium tracking-tighter mb-4">Roadmap & Retainer</h1>
           <p className="text-lg md:text-xl text-slate-600 max-w-2xl leading-relaxed">
-            Focus: 90-day chapters. We pull 4–6 items from the backlog per month. Micro-maintenance only.
+            Focus: Rapid execution of high-impact web deliverables. Active priorities live here, new ideas go to the backlog.
           </p>
         </div>
         <button
