@@ -19,6 +19,7 @@ import {
   useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { PROJECT_CONFIG } from './config';
 
 // Drag & Drop Wrapper Component
 function SortableItem(props) {
@@ -52,7 +53,7 @@ const TABS = {
   ARCHIVE: '03_ARCHIVE'
 };
 
-const BUCKETS = ['1.0 Polish', '2.0 Experience', 'Brand / Narrative', 'Sales Collateral', 'Maintenance'];
+const BUCKETS = PROJECT_CONFIG.buckets.map(b => b.name);
 const EFFORTS = ['S', 'M', 'L'];
 const STATUSES = ['Planned', 'Ongoing', 'In Progress', 'Done', 'Blocked'];
 
@@ -134,6 +135,7 @@ function MainApp() {
 
   // Fetch from Supabase on mount
   useEffect(() => {
+    document.title = PROJECT_CONFIG.pageTitle;
     fetchTasks();
 
     // Subscribe to live DB changes
@@ -313,15 +315,9 @@ function MainApp() {
     if (error) console.error("Error saving edits to DB:", error);
   };
 
-  const getBucketStyle = (bucket) => {
-    switch (bucket) {
-      case '1.0 Polish': return 'bg-curbee-teal-500 text-white';
-      case '2.0 Experience': return 'bg-curbee-orange-500 text-white';
-      case 'Brand / Narrative': return 'bg-curbee-amber-500 text-slate-900';
-      case 'Sales Collateral': return 'bg-curbee-slate-800 text-white';
-      case 'Maintenance': return 'bg-curbee-slate-200 text-slate-900';
-      default: return 'bg-curbee-slate-200 text-slate-900';
-    }
+  const getBucketStyle = (bucketName) => {
+    const bucket = PROJECT_CONFIG.buckets.find(b => b.name === bucketName);
+    return bucket ? bucket.style : 'bg-slate-200 text-slate-900';
   };
 
   const uploadToSupabase = async (file) => {
@@ -409,14 +405,14 @@ function MainApp() {
           <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-[2rem] shadow-2xl text-center">
             <div className="mb-8 flex justify-center h-16 w-auto">
               {/* Use the logo in dark mode context */}
-              <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain brightness-0 invert opacity-90" />
+              <img src={PROJECT_CONFIG.logoPath} alt={PROJECT_CONFIG.clientName} className="h-full w-auto object-contain brightness-0 invert opacity-90" />
             </div>
 
             <h2 className="text-2xl text-white font-light tracking-tight mb-6">Restricted Access</h2>
 
             <form onSubmit={(e) => {
               e.preventDefault();
-              if (passwordInput === '2026') {
+              if (passwordInput === PROJECT_CONFIG.masterPassword) {
                 setIsAuthenticated(true);
                 sessionStorage.setItem('curbeePlannerAuth', 'true');
               } else {
@@ -450,7 +446,7 @@ function MainApp() {
     return (
       <div className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center p-6">
         <div className="mb-8 h-12 w-auto animate-pulse">
-          <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain" />
+          <img src={PROJECT_CONFIG.logoPath} alt={PROJECT_CONFIG.clientName} className="h-full w-auto object-contain" />
         </div>
         <div className="flex gap-2">
           <div className="w-2 h-2 rounded-full bg-curbee-teal-500 animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -469,7 +465,7 @@ function MainApp() {
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
           <div className="bg-[#F5F5F0] text-slate-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center border border-white/20">
             <div className="mb-6 h-10 w-auto animate-pulse opacity-50">
-              <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain" />
+              <img src={PROJECT_CONFIG.logoPath} alt={PROJECT_CONFIG.clientName} className="h-full w-auto object-contain" />
             </div>
             <h3 className="text-xl font-medium tracking-tight mb-4">Uploading Proof...</h3>
             <div className="flex gap-2">
@@ -486,11 +482,11 @@ function MainApp() {
         <div>
           <div className="mb-8 h-20 w-auto">
             {/* Use the logo in light mode context */}
-            <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain object-left" />
+            <img src={PROJECT_CONFIG.logoPath} alt={PROJECT_CONFIG.clientName} className="h-full w-auto object-contain object-left" />
           </div>
-          <h1 className="text-5xl md:text-7xl font-sans font-medium tracking-tighter mb-4">Roadmap & Retainer</h1>
+          <h1 className="text-5xl md:text-7xl font-sans font-medium tracking-tighter mb-4">{PROJECT_CONFIG.headline}</h1>
           <p className="text-lg md:text-xl text-slate-600 max-w-2xl leading-relaxed">
-            Focus: Rapid execution of high-impact web deliverables. Active priorities live here, new ideas go to the backlog.
+            {PROJECT_CONFIG.subheadline}
           </p>
         </div>
         <button
