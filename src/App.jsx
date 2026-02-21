@@ -11,6 +11,32 @@ const BUCKETS = ['1.0 Polish', '2.0 Experience', 'Brand / Narrative', 'Sales Col
 const EFFORTS = ['S', 'M', 'L'];
 const STATUSES = ['Planned', 'Ongoing', 'In Progress', 'Done', 'Blocked'];
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    this.setState({ error, info });
+    console.error("ErrorBoundary Caught:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', background: 'red', color: 'white' }}>
+          <h1>App Crashed!</h1>
+          <p>{this.state.error && this.state.error.toString()}</p>
+          <pre>{this.state.info && this.state.info.componentStack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const initialData = [
   // CHAPTER
   { id: 'C-001', tab: TABS.CHAPTER, item: 'Curbee.com 1.0 Polish (QA + CMS)', bucket: '1.0 Polish', effort: 'M', status: 'In Progress', window: 'Weeks 1–4', owner: 'Ant', notes: 'Completion: End of Month 1' },
@@ -32,8 +58,27 @@ const initialData = [
   { id: 'A-003', tab: TABS.ARCHIVE, item: 'Business Cards + Event Merch System', bucket: 'Sales Collateral', effort: 'M', status: 'Done', window: 'Past', owner: 'Ant', notes: 'Billed' }
 ];
 
-export default function App() {
+function MainApp() {
   const [activeTab, setActiveTab] = useState(TABS.CHAPTER);
+  const [animationDir, setAnimationDir] = useState('right');
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const handleTabChange = (newTab) => {
+    if (newTab === activeTab) return;
+
+    const tabsArray = Object.values(TABS);
+    const currentIndex = tabsArray.indexOf(activeTab);
+    const newIndex = tabsArray.indexOf(newTab);
+
+    setAnimationDir(newIndex > currentIndex ? 'right' : 'left');
+    setIsTransitioning(true);
+
+    setTimeout(() => {
+      setActiveTab(newTab);
+      setIsTransitioning(false);
+    }, 150);
+  };
+
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return sessionStorage.getItem('curbeePlannerAuth') === 'true';
   });
@@ -60,7 +105,7 @@ export default function App() {
 
   const generateId = () => {
     const maxId = tasks.reduce((max, task) => {
-      const num = parseInt(task.id.replace('C-', ''));
+      const num = parseInt(String(task.id).replace('C-', '').replace('A-', '')) || 0;
       return num > max ? num : max;
     }, 0);
     return `C-${String(maxId + 1).padStart(3, '0')}`;
@@ -229,16 +274,17 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F5F5F0] text-slate-900 font-sans p-6 md:p-12 selection:bg-black selection:text-white">
+    <div className="min-h-screen bg-[#F5F5F0] text-slate-900 font-sans p-6 md:p-12 selection:bg-black selection:text-white overflow-x-hidden">
 
       {/* Header */}
       <header className="max-w-[1400px] mx-auto mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <div className="mb-8 h-20 w-auto">
+            {/* Use the logo in light mode context */}
             <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain object-left" />
           </div>
-          <h1 className="text-5xl md:text-7xl font-sans font-light tracking-tighter mb-4">Roadmap & Retainer</h1>
-          <p className="text-lg md:text-xl text-slate-600 max-w-2xl leading-relaxed font-light">
+          <h1 className="text-5xl md:text-7xl font-sans font-medium tracking-tighter mb-4">Roadmap & Retainer</h1>
+          <p className="text-lg md:text-xl text-slate-600 max-w-2xl leading-relaxed">
             Focus: 90-day chapters. We pull 4–6 items from the backlog per month. Micro-maintenance only.
           </p>
         </div>
@@ -250,47 +296,47 @@ export default function App() {
           <span>New Item</span>
         </button>
       </header>
+      {/* Main Content Area */}
+      <main className="max-w-[1400px] mx-auto overflow-x-hidden">
 
-      {/* Tabs */}
-      <div className="max-w-[1400px] mx-auto mb-12 flex flex-wrap gap-4">
-        {[
-          { id: TABS.CHAPTER, label: '01_THIS_CHAPTER (90 days)' },
-          { id: TABS.BACKLOG, label: '02_BACKLOG / IDEAS' },
-          { id: TABS.ARCHIVE, label: '03_ARCHIVE (Done)' }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-6 py-3 text-sm tracking-wide uppercase font-semibold transition-all rounded-full border-2 ${activeTab === tab.id
-              ? 'border-black bg-black text-white'
-              : 'border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-800'
-              }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Main Content Area - Responsive Masonry/Grid Layout */}
-      <main className="max-w-[1400px] mx-auto">
+        {/* Navigation Tabs */}
+        <div className="flex overflow-x-auto snap-x scrollbar-hide whitespace-nowrap gap-6 md:gap-8 mb-12 border-b border-black/10 pb-4 relative z-20">
+          {Object.values(TABS).map(tab => (
+            <button
+              key={tab}
+              onClick={() => handleTabChange(tab)}
+              className={`pb-4 px-2 -mb-[17px] text-sm md:text-base font-semibold tracking-widest uppercase transition-colors relative
+                ${activeTab === tab ? 'text-black' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              {tab}
+              {activeTab === tab && (
+                <div className="absolute bottom-0 left-0 w-full h-[2px] bg-black" />
+              )}
+            </button>
+          ))}
+        </div>
 
         {filteredTasks.length === 0 && (
           <div className="py-24 text-center border-2 border-dashed border-slate-300 rounded-[2rem]">
-            <p className="text-2xl text-slate-400 font-light">No items in this view.</p>
+            <p className="text-xl text-slate-400 font-light">No items in this view.</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-auto">
+        {/* Board / Grid with Animation Wrapper */}
+        <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-auto transition-opacity duration-150 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
           {filteredTasks.map(task => {
             const isEditing = editingId === task.id;
             const bgStyle = getBucketStyle(activeTab === TABS.BACKLOG ? task.bucketGuess : task.bucket);
             const isDarkBg = bgStyle.includes('text-white');
 
+            // Animation class for individual cards
+            const animationClass = isTransitioning ? '' : (animationDir === 'right' ? 'animate-slide-in-right' : 'animate-slide-in-left');
+
             return (
               <div
                 key={task.id}
-                className={`group relative rounded-[2rem] p-8 flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 ${bgStyle}`}
-                style={{ minHeight: '320px' }}
+                className={`group relative rounded-[2rem] p-8 flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 ${bgStyle} ${animationClass}`}
+                style={{ minHeight: '320px', animationFillMode: 'both' }}
               >
                 {isEditing ? (
                   // --- EDIT MODE ---
@@ -492,24 +538,23 @@ export default function App() {
                         </div>
                       )}
                     </div>
-
                     {/* Background ID Watermark */}
                     <div className="absolute right-[-10%] bottom-[-10%] text-[8rem] font-black opacity-5 select-none pointer-events-none tracking-tighter z-0">
-                      {task.id.split('-')[1]}
+                      {String(task.id).includes('-') ? String(task.id).split('-')[1] : task.id}
                     </div>
-
-                    {/* Timeline Media Carousel - Display Mode */}
-                    {task.media && task.media.length > 0 && (
-                      <div className="relative z-10 mt-6 pt-4 border-t border-current border-opacity-20">
-                        <span className="text-xs uppercase tracking-widest opacity-60 font-semibold mb-3 block">Visual Proof</span>
-                        <div className="flex gap-3 overflow-x-auto pb-4 pt-1 snap-x scrollbar-hide">
-                          {task.media.map((item, idx) => (
-                            <img key={idx} src={item} alt="Proof" className="h-20 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0" />
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </>
+                )}
+
+                {/* Timeline Media Carousel Drawer - Display Mode (Absolute Positioned Bottom) */}
+                {!isEditing && task.media && task.media.length > 0 && (
+                  <div className={`absolute z-20 bottom-0 left-0 right-0 p-6 pt-4 rounded-t-3xl backdrop-blur-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.15)] transform transition-transform duration-300 translate-y-full group-hover:translate-y-0 ${isDarkBg ? 'bg-white/20 border-t border-white/30' : 'bg-black/10 border-t border-black/10'}`}>
+                    <span className="text-xs uppercase tracking-widest opacity-80 font-bold mb-3 block">Visual Proof ({task.media.length})</span>
+                    <div className="flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-hide">
+                      {task.media.map((item, idx) => (
+                        <img key={idx} src={item} alt="Proof" className="h-24 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0" />
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 {/* Media Uploader / Manager - Edit Mode */}
@@ -530,11 +575,11 @@ export default function App() {
                     {editForm.media && editForm.media.length > 0 && (
                       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                         {editForm.media.map((m, i) => (
-                          <div key={i} className="relative group flex-shrink-0">
-                            <img src={m} alt="" className="h-16 w-16 object-cover rounded shadow-sm opacity-90 group-hover:opacity-100" />
+                          <div key={i} className="relative group/media flex-shrink-0">
+                            <img src={m} alt="" className="h-16 w-16 object-cover rounded shadow-sm opacity-90 group-hover/media:opacity-100" />
                             <button
                               onClick={() => setEditForm(prev => ({ ...prev, media: prev.media.filter((_, index) => index !== i) }))}
-                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:scale-110 opacity-0 group-hover:opacity-100 transition-all text-xs"
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:scale-110 opacity-0 group-hover/media:opacity-100 transition-all text-xs z-10"
                             >
                               ×
                             </button>
@@ -548,8 +593,15 @@ export default function App() {
             );
           })}
         </div>
-
       </main>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
   );
 }
