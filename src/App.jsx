@@ -1,5 +1,7 @@
+import React, { useState, useEffect } from 'react';
 import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight, ExternalLink, X } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { v4 as uuidv4 } from 'uuid';
 
 const TABS = {
   CHAPTER: '01_THIS_CHAPTER',
@@ -117,9 +119,18 @@ function MainApp() {
       }
     } catch (err) {
       console.error('Error fetching tasks from DB:', err);
-      // Fallback to emergency local state if network completely fails
-      const savedTasks = localStorage.getItem('curbeePlannerTasks');
-      if (savedTasks) setTasks(JSON.parse(savedTasks));
+      // Fallback to emergency local state if network completely fails or DB isn't built
+      try {
+        const savedTasks = localStorage.getItem('curbeePlannerTasks');
+        if (savedTasks) {
+          setTasks(JSON.parse(savedTasks));
+        } else {
+          setTasks(initialData);
+        }
+      } catch (parseErr) {
+        console.warn('Fallback local state corrupted', parseErr);
+        setTasks(initialData);
+      }
     } finally {
       setDbLoading(false);
     }
@@ -234,38 +245,58 @@ function MainApp() {
     }
   };
 
-  const handleMediaUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditForm(prev => ({
-          ...prev,
-          media: [...(prev.media || []), reader.result]
-        }));
-      };
-      reader.readAsDataURL(file);
+  const uploadToSupabase = async (file) => {
+    try {
+      // 1. Generate unique file name
+      const fileExt = file.name ? file.name.split('.').pop() : 'png';
+      const fileName = `${uuidv4()}.${fileExt}`;
+      const filePath = `uploads/${fileName}`;
+
+      // 2. Upload to Supabase Storage 'proofs' bucket
+      const { error: uploadError } = await supabase.storage
+        .from('proofs')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // 3. Get the public URL for the newly uploaded file
+      const { data } = supabase.storage
+        .from('proofs')
+        .getPublicUrl(filePath);
+
+      // 4. Update the local editForm state with the new URL
+      setEditForm(prev => ({
+        ...prev,
+        media: [...(prev.media || []), data.publicUrl]
+      }));
+
+    } catch (error) {
+      console.error('Error uploading image to Supabase Storage:', error);
+      alert('Failed to upload image. Make sure the "proofs" Storage bucket exists and is public.');
     }
   };
 
-  const handlePaste = (e) => {
+  const handleMediaUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      await uploadToSupabase(file);
+    }
+  };
+
+  const handlePaste = async (e) => {
     if (!editingId) return;
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        const blob = items[i].getAsFile();
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setEditForm(prev => ({
-            ...prev,
-            media: [...(prev.media || []), reader.result]
-          }));
-        };
-        reader.readAsDataURL(blob);
+        const file = items[i].getAsFile();
+        if (file) {
+          await uploadToSupabase(file);
+        }
       }
     }
   };
 
+  // Setup paste listener
   useEffect(() => {
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
