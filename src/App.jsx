@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
 import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight, ExternalLink, X } from 'lucide-react';
+import { supabase } from './lib/supabase';
 
 const TABS = {
   CHAPTER: '01_THIS_CHAPTER',
@@ -84,24 +84,57 @@ function MainApp() {
   });
   const [passwordInput, setPasswordInput] = useState('');
 
-  const [tasks, setTasks] = useState(() => {
+  const [tasks, setTasks] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+
+  // Fetch from Supabase on mount
+  useEffect(() => {
+    fetchTasks();
+
+    // Subscribe to live DB changes
+    const channel = supabase
+      .channel('tasks_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, payload => {
+        fetchTasks(); // Resync on remote broadcast
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchTasks = async () => {
     try {
+      const { data, error } = await supabase.from('tasks').select('*').order('id', { ascending: true });
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setTasks(data);
+      } else {
+        // Fallback to initial seed if DB is utterly empty
+        setTasks(initialData);
+        // Optional: you could bulk-insert them here to seed
+      }
+    } catch (err) {
+      console.error('Error fetching tasks from DB:', err);
+      // Fallback to emergency local state if network completely fails
       const savedTasks = localStorage.getItem('curbeePlannerTasks');
-      return savedTasks ? JSON.parse(savedTasks) : initialData;
-    } catch (e) {
-      console.warn('Failed to parse tasks from localStorage', e);
-      return initialData;
+      if (savedTasks) setTasks(JSON.parse(savedTasks));
+    } finally {
+      setDbLoading(false);
     }
-  });
+  };
 
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [passwordFieldShake, setPasswordFieldShake] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
 
-  // Persist to local storage whenever tasks change
+  // Synchronous local backup (useful for aggressive offline recovery if needed)
   useEffect(() => {
-    localStorage.setItem('curbeePlannerTasks', JSON.stringify(tasks));
+    if (tasks.length > 0) {
+      localStorage.setItem('curbeePlannerTasks', JSON.stringify(tasks));
+    }
   }, [tasks]);
 
   const generateId = () => {
@@ -129,16 +162,25 @@ function MainApp() {
       bucketGuess: '1.0 Polish',
       priorityGuess: 'Medium'
     };
+
+    // Optistic UI Update
     setTasks([...tasks, newTask]);
     startEditing(newTask);
+
+    // Background DB Sync
+    supabase.from('tasks').insert([newTask]).then(({ error }) => {
+      if (error) console.error("Error inserting task:", error);
+    });
   };
 
-  const updateTask = (id, field, value) => {
+  const updateTask = async (id, field, value) => {
     setTasks(tasks.map(t => t.id === id ? { ...t, [field]: value } : t));
+    const { error } = await supabase.from('tasks').update({ [field]: value }).eq('id', id);
+    if (error) console.error("Error updating DB:", error);
   };
 
   const moveTask = (id, newTab) => {
-    setTasks(tasks.map(t => {
+    const updatedTasks = tasks.map(t => {
       if (t.id === id) {
         let updates = { tab: newTab };
         if (newTab === TABS.ARCHIVE) updates.status = 'Done';
@@ -152,7 +194,17 @@ function MainApp() {
         return { ...t, ...updates };
       }
       return t;
-    }));
+    });
+
+    setTasks(updatedTasks);
+
+    // Sync the specific targeted task mutation to the DB
+    const mutatedTask = updatedTasks.find(t => t.id === id);
+    if (mutatedTask) {
+      supabase.from('tasks').update(mutatedTask).eq('id', id).then(({ error }) => {
+        if (error) console.error("Error moving task in DB:", error);
+      });
+    }
   };
 
   const startEditing = (task) => {
@@ -160,9 +212,15 @@ function MainApp() {
     setEditForm(task);
   };
 
-  const saveEdit = () => {
-    setTasks(tasks.map(t => t.id === editingId ? { ...t, ...editForm } : t));
+  const saveEdit = async () => {
+    const activeEditTask = tasks.find(t => t.id === editingId);
+    const updatedTask = { ...activeEditTask, ...editForm };
+
+    setTasks(tasks.map(t => t.id === editingId ? updatedTask : t));
     setEditingId(null);
+
+    const { error } = await supabase.from('tasks').update(updatedTask).eq('id', updatedTask.id);
+    if (error) console.error("Error saving edits to DB:", error);
   };
 
   const getBucketStyle = (bucket) => {
@@ -275,6 +333,20 @@ function MainApp() {
     );
   }
 
+  if (dbLoading) {
+    return (
+      <div className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center p-6">
+        <div className="mb-8 h-12 w-auto animate-pulse">
+          <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain" />
+        </div>
+        <div className="flex gap-2">
+          <div className="w-2 h-2 rounded-full bg-curbee-teal-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-2 h-2 rounded-full bg-curbee-orange-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-2 h-2 rounded-full bg-curbee-amber-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-[#F5F5F0] text-slate-900 font-sans p-6 md:p-12 selection:bg-black selection:text-white overflow-x-hidden">
 
