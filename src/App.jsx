@@ -5,8 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const TABS = {
   CHAPTER: '01_THIS_CHAPTER',
-  BACKLOG: '02_BACKLOG / IDEAS',
-  ARCHIVE: '03_ARCHIVE (Done)'
+  BACKLOG: '02_BACKLOG',
+  ARCHIVE: '03_ARCHIVE'
 };
 
 const BUCKETS = ['1.0 Polish', '2.0 Experience', 'Brand / Narrative', 'Sales Collateral', 'Maintenance'];
