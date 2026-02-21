@@ -34,6 +34,11 @@ const initialData = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(TABS.CHAPTER);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return sessionStorage.getItem('curbeePlannerAuth') === 'true';
+  });
+  const [passwordInput, setPasswordInput] = useState('');
+
   const [tasks, setTasks] = useState(() => {
     try {
       const savedTasks = localStorage.getItem('curbeePlannerTasks');
@@ -46,6 +51,7 @@ export default function App() {
 
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [passwordFieldShake, setPasswordFieldShake] = useState(false);
 
   // Persist to local storage whenever tasks change
   useEffect(() => {
@@ -123,6 +129,43 @@ export default function App() {
     }
   };
 
+  const handleMediaUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditForm(prev => ({
+          ...prev,
+          media: [...(prev.media || []), reader.result]
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handlePaste = (e) => {
+    if (!editingId) return;
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const blob = items[i].getAsFile();
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setEditForm(prev => ({
+            ...prev,
+            media: [...(prev.media || []), reader.result]
+          }));
+        };
+        reader.readAsDataURL(blob);
+      }
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [editingId, editForm]);
+
   const getStatusIcon = (status) => {
     switch (status) {
       case 'Planned': return <div className="w-3 h-3 rounded-full bg-white/50" title="Planned" />;
@@ -134,6 +177,56 @@ export default function App() {
   };
 
   const filteredTasks = tasks.filter(t => t.tab === activeTab);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 selection:bg-white selection:text-black">
+        {/* Background ambient light */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-curbee-teal-500/20 rounded-full blur-[100px]" />
+          <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-curbee-orange-500/10 rounded-full blur-[80px]" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-sm">
+          <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-[2rem] shadow-2xl text-center">
+            <div className="mb-8 flex justify-center h-16 w-auto">
+              {/* Use the logo in dark mode context */}
+              <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain brightness-0 invert opacity-90" />
+            </div>
+
+            <h2 className="text-2xl text-white font-light tracking-tight mb-6">Restricted Access</h2>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (passwordInput === '2026') {
+                setIsAuthenticated(true);
+                sessionStorage.setItem('curbeePlannerAuth', 'true');
+              } else {
+                setPasswordFieldShake(true);
+                setTimeout(() => setPasswordFieldShake(false), 500);
+                setPasswordInput('');
+              }
+            }}>
+              <input
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="Enter Password"
+                className="w-full bg-black/40 border border-white/10 text-white placeholder:text-white/30 rounded-xl p-4 outline-none focus:ring-2 focus:ring-curbee-teal-500 focus:border-transparent transition-all text-center tracking-[0.2em] font-mono text-xl mb-4"
+                autoFocus
+              />
+              <button
+                type="submit"
+                className="w-full bg-white text-black font-semibold rounded-xl p-4 hover:bg-slate-200 transition-colors"
+              >
+                Enter
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F5F0] text-slate-900 font-sans p-6 md:p-12 selection:bg-black selection:text-white">
@@ -404,7 +497,52 @@ export default function App() {
                     <div className="absolute right-[-10%] bottom-[-10%] text-[8rem] font-black opacity-5 select-none pointer-events-none tracking-tighter z-0">
                       {task.id.split('-')[1]}
                     </div>
+
+                    {/* Timeline Media Carousel - Display Mode */}
+                    {task.media && task.media.length > 0 && (
+                      <div className="relative z-10 mt-6 pt-4 border-t border-current border-opacity-20">
+                        <span className="text-xs uppercase tracking-widest opacity-60 font-semibold mb-3 block">Visual Proof</span>
+                        <div className="flex gap-3 overflow-x-auto pb-4 pt-1 snap-x scrollbar-hide">
+                          {task.media.map((item, idx) => (
+                            <img key={idx} src={item} alt="Proof" className="h-20 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0" />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
+                )}
+
+                {/* Media Uploader / Manager - Edit Mode */}
+                {isEditing && (
+                  <div className={`mt-6 pt-4 border-t ${isDarkBg ? 'border-white/20' : 'border-black/20'}`}>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs uppercase tracking-wider opacity-60 font-semibold">Timeline Media</span>
+                      <label className="cursor-pointer text-xs font-semibold px-3 py-1 bg-black/10 rounded-full hover:bg-black/20 transition-colors">
+                        Add Image
+                        <input type="file" accept="image/*" onChange={handleMediaUpload} className="hidden" />
+                      </label>
+                    </div>
+                    {/* Make sure we instruct them about pasting */}
+                    {(!editForm.media || editForm.media.length === 0) && (
+                      <p className="text-xs opacity-50 italic mb-2">Or paste (Cmd+V) directly anywhere on this card.</p>
+                    )}
+
+                    {editForm.media && editForm.media.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {editForm.media.map((m, i) => (
+                          <div key={i} className="relative group flex-shrink-0">
+                            <img src={m} alt="" className="h-16 w-16 object-cover rounded shadow-sm opacity-90 group-hover:opacity-100" />
+                            <button
+                              onClick={() => setEditForm(prev => ({ ...prev, media: prev.media.filter((_, index) => index !== i) }))}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:scale-110 opacity-0 group-hover:opacity-100 transition-all text-xs"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             );
