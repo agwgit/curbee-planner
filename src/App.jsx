@@ -2,6 +2,49 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Archive, MoveUpRight, Edit3, Save, CheckCircle2, ArrowRight, ExternalLink, X, ArrowLeft } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  rectSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// Drag & Drop Wrapper Component
+function SortableItem(props) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 100 : 1,
+    position: 'relative'
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="touch-manipulation">
+      {props.children}
+    </div>
+  );
+}
 
 const TABS = {
   CHAPTER: '01_THIS_CHAPTER',
@@ -133,6 +176,41 @@ function MainApp() {
       }
     } finally {
       setDbLoading(false);
+    }
+  };
+
+  // DND Kit Setup
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // 5px drag required before activation (allows clicking edit/buttons)
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+
+    if (active.id !== over.id) {
+      setTasks((items) => {
+        const oldIndex = items.findIndex(item => item.id === active.id);
+        const newIndex = items.findIndex(item => item.id === over.id);
+
+        const newArray = arrayMove(items, oldIndex, newIndex);
+
+        // Map the new order index and send async updates to DB for affected items
+        newArray.forEach((task, index) => {
+          if (task.order_index !== index) {
+            task.order_index = index;
+            supabase.from('tasks').update({ order_index: index }).eq('id', task.id).then();
+          }
+        });
+
+        return newArray;
+      });
     }
   };
 
@@ -404,7 +482,7 @@ function MainApp() {
       )}
 
       {/* Header */}
-      <header className="max-w-[1400px] mx-auto mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <header className="max-w-[1400px] mx-auto mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <div className="mb-8 h-20 w-auto">
             {/* Use the logo in light mode context */}
@@ -423,24 +501,27 @@ function MainApp() {
           <span>New Item</span>
         </button>
       </header>
-      {/* Main Content Area */}
-      <main className="max-w-[1400px] mx-auto overflow-x-hidden">
 
-        {/* Navigation Tabs */}
-        <div className="flex overflow-x-auto snap-x scrollbar-hide whitespace-nowrap gap-6 md:gap-8 mb-12 border-b border-black/10 pb-4 relative z-20">
-          {Object.values(TABS).map(tab => (
-            <button
-              key={tab}
-              onClick={() => handleTabChange(tab)}
-              className={`pb-4 px-2 -mb-[17px] text-sm md:text-base font-semibold tracking-widest uppercase transition-colors relative
-                ${activeTab === tab ? 'text-black' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              {tab}
-              {activeTab === tab && (
-                <div className="absolute bottom-0 left-0 w-full h-[2px] bg-black" />
-              )}
-            </button>
-          ))}
+      {/* Main Content Area */}
+      <main className="max-w-[1400px] mx-auto overflow-x-hidden relative">
+
+        {/* Navigation Tabs - Sticky */}
+        <div className="sticky top-0 z-50 bg-[#F5F5F0]/80 backdrop-blur-xl pt-6 pb-2 mb-8 -mx-6 px-6 md:-mx-12 md:px-12">
+          <div className="flex overflow-x-auto snap-x scrollbar-hide whitespace-nowrap gap-6 md:gap-8 border-b border-black/10 pb-4 relative">
+            {Object.values(TABS).map(tab => (
+              <button
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                className={`pb-4 px-2 -mb-[17px] text-sm md:text-base font-semibold tracking-widest uppercase transition-colors relative
+                  ${activeTab === tab ? 'text-black' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                {tab}
+                {activeTab === tab && (
+                  <div className="absolute bottom-0 left-0 w-full h-[2px] bg-black" />
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         {filteredTasks.length === 0 && (
@@ -450,296 +531,309 @@ function MainApp() {
         )}
 
         {/* Board / Grid with Animation Wrapper */}
-        <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-auto transition-opacity duration-150 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-          {filteredTasks.map(task => {
-            const isEditing = editingId === task.id;
-            const bgStyle = getBucketStyle(activeTab === TABS.BACKLOG ? task.bucketGuess : task.bucket);
-            const isDarkBg = bgStyle.includes('text-white');
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={filteredTasks.map(t => t.id)}
+            strategy={rectSortingStrategy}
+          >
+            <div className={`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-auto transition-opacity duration-150 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+              {filteredTasks.map(task => {
+                const isEditing = editingId === task.id;
+                const bgStyle = getBucketStyle(activeTab === TABS.BACKLOG ? task.bucketGuess : task.bucket);
+                const isDarkBg = bgStyle.includes('text-white');
 
-            // Animation class for individual cards
-            const animationClass = isTransitioning ? '' : (animationDir === 'right' ? 'animate-slide-in-right' : 'animate-slide-in-left');
+                // Animation class for individual cards
+                const animationClass = isTransitioning ? '' : (animationDir === 'right' ? 'animate-slide-in-right' : 'animate-slide-in-left');
 
-            return (
-              <div
-                key={task.id}
-                className={`group relative rounded-[2rem] p-8 flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 ${bgStyle} ${animationClass}`}
-                style={{ minHeight: '320px', animationFillMode: 'both' }}
-              >
-                {isEditing ? (
-                  // --- EDIT MODE ---
-                  <div className={`h-full flex flex-col gap-4 ${isDarkBg ? 'text-white' : 'text-slate-900'}`}>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="font-mono text-sm opacity-60 backdrop-blur-sm bg-black/10 px-3 py-1 rounded-full">{task.id}</span>
-                      <button onClick={saveEdit} className="p-2 bg-black text-white rounded-full hover:scale-110 transition-transform"><Save size={18} /></button>
-                    </div>
-
-                    <textarea
-                      value={editForm.item}
-                      onChange={e => setEditForm({ ...editForm, item: e.target.value })}
-                      className="text-2xl font-medium bg-black/5 border border-black/10 rounded-xl p-3 outline-none focus:ring-2 focus:ring-black/20 resize-none"
-                      rows="2"
-                    />
-
-                    {activeTab === TABS.BACKLOG ? (
-                      <div className="grid grid-cols-2 gap-3 mt-auto">
-                        <div className="col-span-2">
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-2 block">Bucket / Color</label>
-                          <div className="flex flex-wrap gap-2">
-                            {BUCKETS.map(b => {
-                              const bStyle = getBucketStyle(b);
-                              const bColor = bStyle.split(' ')[0]; // Gets the bg-... class
-                              return (
-                                <button
-                                  key={b}
-                                  type="button"
-                                  onClick={() => setEditForm({ ...editForm, bucketGuess: b })}
-                                  className={`relative px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border-2 transition-all ${bColor} ${isDarkBg ? 'text-slate-900' : 'text-slate-900'} ${editForm.bucketGuess === b ? 'border-current scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}
-                                >
-                                  {b}
-                                </button>
-                              );
-                            })}
+                return (
+                  <SortableItem key={task.id} id={task.id}>
+                    <div
+                      className={`group relative rounded-[2rem] p-8 flex flex-col justify-between overflow-hidden shadow-sm hover:shadow-xl transition-all duration-500 ${bgStyle} ${animationClass}`}
+                      style={{ minHeight: '320px', animationFillMode: 'both' }}
+                    >
+                      {isEditing ? (
+                        // --- EDIT MODE ---
+                        <div className={`h-full flex flex-col gap-4 ${isDarkBg ? 'text-white' : 'text-slate-900'}`}>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="font-mono text-sm opacity-60 backdrop-blur-sm bg-black/10 px-3 py-1 rounded-full">{task.id}</span>
+                            <button onClick={saveEdit} className="p-2 bg-black text-white rounded-full hover:scale-110 transition-transform"><Save size={18} /></button>
                           </div>
-                        </div>
-                        <div>
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Asked By (POC)</label>
-                          <input type="text" value={editForm.whoAsked} onChange={e => setEditForm({ ...editForm, whoAsked: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="e.g. Amit" />
-                        </div>
-                        <div>
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Priority</label>
-                          <select value={editForm.priorityGuess} onChange={e => setEditForm({ ...editForm, priorityGuess: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none">
-                            <option className="text-slate-900">Low</option><option className="text-slate-900">Medium</option><option className="text-slate-900">High</option>
-                          </select>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-3 mt-auto">
-                        <div className="col-span-2">
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-2 block">Bucket / Color</label>
-                          <div className="flex flex-wrap gap-2">
-                            {BUCKETS.map(b => {
-                              const bStyle = getBucketStyle(b);
-                              const bColor = bStyle.split(' ')[0]; // Gets the bg-... class
-                              return (
-                                <button
-                                  key={b}
-                                  type="button"
-                                  onClick={() => setEditForm({ ...editForm, bucket: b })}
-                                  className={`relative px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border-2 transition-all ${bColor} ${isDarkBg ? 'text-slate-900' : 'text-slate-900'} ${editForm.bucket === b ? 'border-current scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}
-                                >
-                                  {b}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div>
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Status</label>
-                          <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none">
-                            {STATUSES.map(s => <option key={s} className="text-slate-900">{s}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Effort</label>
-                          <select value={editForm.effort} onChange={e => setEditForm({ ...editForm, effort: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none">
-                            {EFFORTS.map(e => <option key={e} className="text-slate-900">{e}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Window</label>
-                          <input type="text" value={editForm.window} onChange={e => setEditForm({ ...editForm, window: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="e.g. Weeks 1-3" />
-                        </div>
-                        <div>
-                          <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">POC / Owner</label>
-                          <input type="text" value={editForm.owner} onChange={e => setEditForm({ ...editForm, owner: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="e.g. Nicole, Amit" />
-                        </div>
-                      </div>
-                    )}
 
-                    <div className="mt-4">
-                      <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">External Link</label>
-                      <input type="text" value={editForm.link || ''} onChange={e => setEditForm({ ...editForm, link: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="https://" />
-                    </div>
-                  </div>
-                ) : (
-                  // --- DISPLAY MODE ---
-                  <>
-                    {/* Top row: Pill + Action Icon */}
-                    <div className="flex justify-between items-start z-10">
-                      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20' : 'bg-black/5 border-black/10'} text-sm font-medium`}>
-                        {activeTab !== TABS.BACKLOG && getStatusIcon(task.status)}
-                        {activeTab === TABS.BACKLOG ? task.bucketGuess : task.bucket}
-                      </div>
+                          <textarea
+                            value={editForm.item}
+                            onChange={e => setEditForm({ ...editForm, item: e.target.value })}
+                            className="text-2xl font-medium bg-black/5 border border-black/10 rounded-xl p-3 outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                            rows="2"
+                          />
 
-                      {/* Hover Actions */}
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
-                        <button
-                          onClick={() => startEditing(task)}
-                          className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
-                          title="Edit"
-                        >
-                          <Edit3 size={16} />
-                        </button>
+                          {activeTab === TABS.BACKLOG ? (
+                            <div className="grid grid-cols-2 gap-3 mt-auto">
+                              <div className="col-span-2">
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-2 block">Bucket / Color</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {BUCKETS.map(b => {
+                                    const bStyle = getBucketStyle(b);
+                                    const bColor = bStyle.split(' ')[0]; // Gets the bg-... class
+                                    return (
+                                      <button
+                                        key={b}
+                                        type="button"
+                                        onClick={() => setEditForm({ ...editForm, bucketGuess: b })}
+                                        className={`relative px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border-2 transition-all ${bColor} ${isDarkBg ? 'text-slate-900' : 'text-slate-900'} ${editForm.bucketGuess === b ? 'border-current scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                                      >
+                                        {b}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Asked By (POC)</label>
+                                <input type="text" value={editForm.whoAsked} onChange={e => setEditForm({ ...editForm, whoAsked: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="e.g. Amit" />
+                              </div>
+                              <div>
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Priority</label>
+                                <select value={editForm.priorityGuess} onChange={e => setEditForm({ ...editForm, priorityGuess: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none">
+                                  <option className="text-slate-900">Low</option><option className="text-slate-900">Medium</option><option className="text-slate-900">High</option>
+                                </select>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-3 mt-auto">
+                              <div className="col-span-2">
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-2 block">Bucket / Color</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {BUCKETS.map(b => {
+                                    const bStyle = getBucketStyle(b);
+                                    const bColor = bStyle.split(' ')[0]; // Gets the bg-... class
+                                    return (
+                                      <button
+                                        key={b}
+                                        type="button"
+                                        onClick={() => setEditForm({ ...editForm, bucket: b })}
+                                        className={`relative px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider border-2 transition-all ${bColor} ${isDarkBg ? 'text-slate-900' : 'text-slate-900'} ${editForm.bucket === b ? 'border-current scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                                      >
+                                        {b}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Status</label>
+                                <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none">
+                                  {STATUSES.map(s => <option key={s} className="text-slate-900">{s}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Effort</label>
+                                <select value={editForm.effort} onChange={e => setEditForm({ ...editForm, effort: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none">
+                                  {EFFORTS.map(e => <option key={e} className="text-slate-900">{e}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">Window</label>
+                                <input type="text" value={editForm.window} onChange={e => setEditForm({ ...editForm, window: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="e.g. Weeks 1-3" />
+                              </div>
+                              <div>
+                                <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">POC / Owner</label>
+                                <input type="text" value={editForm.owner} onChange={e => setEditForm({ ...editForm, owner: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="e.g. Nicole, Amit" />
+                              </div>
+                            </div>
+                          )}
 
-                        {activeTab === TABS.CHAPTER && (
-                          <button
-                            onClick={() => moveTask(task.id, TABS.ARCHIVE)}
-                            className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
-                            title="Move to Archive"
-                          >
-                            <Archive size={16} />
-                          </button>
-                        )}
-
-                        {activeTab === TABS.BACKLOG && (
-                          <button
-                            onClick={() => moveTask(task.id, TABS.CHAPTER)}
-                            className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
-                            title="Move to Active"
-                          >
-                            <MoveUpRight size={16} />
-                          </button>
-                        )}
-
-                        {activeTab === TABS.ARCHIVE && (
-                          <button
-                            onClick={() => moveTask(task.id, TABS.CHAPTER)}
-                            className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
-                            title="Restore to Active"
-                          >
-                            <ArrowLeft size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Middle: Title & Huge Metric styling */}
-                    <div className="mt-8 z-10 flex-grow">
-                      <h3 className="text-2xl md:text-3xl font-medium leading-tight tracking-tight mb-4 flex items-start gap-2">
-                        <span>{task.item}</span>
-                        {task.link && (
-                          <a href={task.link.startsWith('http') ? task.link : `https://${task.link}`} target="_blank" rel="noopener noreferrer" className="mt-1 opacity-50 hover:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
-                            <ExternalLink size={20} />
-                          </a>
-                        )}
-                      </h3>
-                    </div>
-
-                    {/* Bottom row: Attributes / Notes */}
-                    <div className="relative z-10 mt-6 flex flex-col justify-end">
-                      {activeTab === TABS.BACKLOG ? (
-                        <div className="flex items-center justify-between border-t border-current border-opacity-20 pt-4">
-                          <div className="flex flex-col">
-                            <span className="text-xs uppercase tracking-widest opacity-60 font-semibold mb-1">Asked By</span>
-                            <span className="text-base font-medium">{task.whoAsked}</span>
-                          </div>
-                          <div className="flex flex-col text-right">
-                            <span className="text-xs uppercase tracking-widest opacity-60 font-semibold mb-1">Priority</span>
-                            <span className="text-base font-medium">{task.priorityGuess}</span>
+                          <div className="mt-4">
+                            <label className="text-xs uppercase tracking-wider opacity-60 mb-1 block">External Link</label>
+                            <input type="text" value={editForm.link || ''} onChange={e => setEditForm({ ...editForm, link: e.target.value })} className="w-full bg-black/10 rounded-lg p-2 text-sm outline-none placeholder:text-black/30" placeholder="https://" />
                           </div>
                         </div>
                       ) : (
-                        <div className="space-y-4 border-t border-current border-opacity-20 pt-4">
-                          <div className="flex justify-between items-end">
-                            <div>
-                              <span className="text-[5rem] md:text-[6rem] leading-none font-light tracking-tighter block -ml-1">
-                                {task.effort}
-                              </span>
-                              <span className="text-sm font-semibold uppercase tracking-widest opacity-60">Effort</span>
+                        // --- DISPLAY MODE ---
+                        <>
+                          {/* Top row: Pill + Action Icon */}
+                          <div className="flex justify-between items-start z-10">
+                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20' : 'bg-black/5 border-black/10'} text-sm font-medium`}>
+                              {activeTab !== TABS.BACKLOG && getStatusIcon(task.status)}
+                              {activeTab === TABS.BACKLOG ? task.bucketGuess : task.bucket}
                             </div>
-                            <div className="text-right">
-                              <p className="text-lg font-medium mb-1">{task.window}</p>
-                              <p className="text-sm opacity-80">{task.owner}</p>
+
+                            {/* Hover Actions */}
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2">
+                              <button
+                                onClick={() => startEditing(task)}
+                                className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
+                                title="Edit"
+                              >
+                                <Edit3 size={16} />
+                              </button>
+
+                              {activeTab === TABS.CHAPTER && (
+                                <button
+                                  onClick={() => moveTask(task.id, TABS.ARCHIVE)}
+                                  className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
+                                  title="Move to Archive"
+                                >
+                                  <Archive size={16} />
+                                </button>
+                              )}
+
+                              {activeTab === TABS.BACKLOG && (
+                                <button
+                                  onClick={() => moveTask(task.id, TABS.CHAPTER)}
+                                  className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
+                                  title="Move to Active"
+                                >
+                                  <MoveUpRight size={16} />
+                                </button>
+                              )}
+
+                              {activeTab === TABS.ARCHIVE && (
+                                <button
+                                  onClick={() => moveTask(task.id, TABS.CHAPTER)}
+                                  className={`p-2 rounded-full backdrop-blur-md border ${isDarkBg ? 'bg-white/10 border-white/20 hover:bg-white/20' : 'bg-black/5 border-black/10 hover:bg-black/10'} transition-all`}
+                                  title="Restore to Active"
+                                >
+                                  <ArrowLeft size={16} />
+                                </button>
+                              )}
                             </div>
                           </div>
 
-                          {/* Inline editable status and notes (micro-maintenance) */}
-                          <div className={`mt-4 p-3 rounded-xl backdrop-blur-md ${isDarkBg ? 'bg-black/10' : 'bg-white/40'}`}>
-                            {activeTab !== TABS.ARCHIVE ? (
-                              <div className="flex items-center gap-2 mb-2">
-                                <select
-                                  value={task.status}
-                                  onChange={(e) => updateTask(task.id, 'status', e.target.value)}
-                                  className={`appearance-none bg-transparent font-semibold border-none rounded py-0 px-1 hover:bg-black/5 cursor-pointer outline-none focus:ring-2 focus:ring-black/20`}
-                                >
-                                  {STATUSES.map(s => <option key={s} className="text-slate-900">{s}</option>)}
-                                </select>
-                                <ArrowRight size={14} className="opacity-50" />
+                          {/* Middle: Title & Huge Metric styling */}
+                          <div className="mt-8 z-10 flex-grow">
+                            <h3 className="text-2xl md:text-3xl font-medium leading-tight tracking-tight mb-4 flex items-start gap-2">
+                              <span>{task.item}</span>
+                              {task.link && (
+                                <a href={task.link.startsWith('http') ? task.link : `https://${task.link}`} target="_blank" rel="noopener noreferrer" className="mt-1 opacity-50 hover:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                  <ExternalLink size={20} />
+                                </a>
+                              )}
+                            </h3>
+                          </div>
+
+                          {/* Bottom row: Attributes / Notes */}
+                          <div className="relative z-10 mt-6 flex flex-col justify-end">
+                            {activeTab === TABS.BACKLOG ? (
+                              <div className="flex items-center justify-between border-t border-current border-opacity-20 pt-4">
+                                <div className="flex flex-col">
+                                  <span className="text-xs uppercase tracking-widest opacity-60 font-semibold mb-1">Asked By</span>
+                                  <span className="text-base font-medium">{task.whoAsked}</span>
+                                </div>
+                                <div className="flex flex-col text-right">
+                                  <span className="text-xs uppercase tracking-widest opacity-60 font-semibold mb-1">Priority</span>
+                                  <span className="text-base font-medium">{task.priorityGuess}</span>
+                                </div>
                               </div>
                             ) : (
-                              <p className="font-semibold text-sm mb-2">{task.status}</p>
-                            )}
+                              <div className="space-y-4 border-t border-current border-opacity-20 pt-4">
+                                <div className="flex justify-between items-end">
+                                  <div>
+                                    <span className="text-[5rem] md:text-[6rem] leading-none font-light tracking-tighter block -ml-1">
+                                      {task.effort}
+                                    </span>
+                                    <span className="text-sm font-semibold uppercase tracking-widest opacity-60">Effort</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-lg font-medium mb-1">{task.window}</p>
+                                    <p className="text-sm opacity-80">{task.owner}</p>
+                                  </div>
+                                </div>
 
-                            {activeTab !== TABS.ARCHIVE ? (
-                              <input
-                                type="text"
-                                value={task.notes}
-                                onChange={(e) => updateTask(task.id, 'notes', e.target.value)}
-                                placeholder="Add a quick note..."
-                                className="w-full bg-transparent border-none placeholder:opacity-50 text-sm italic outline-none focus:ring-2 focus:ring-black/20 rounded px-1 -ml-1"
-                              />
-                            ) : (
-                              <p className="text-sm italic opacity-80">{task.notes || "No notes."}</p>
+                                {/* Inline editable status and notes (micro-maintenance) */}
+                                <div className={`mt-4 p-3 rounded-xl backdrop-blur-md ${isDarkBg ? 'bg-black/10' : 'bg-white/40'}`}>
+                                  {activeTab !== TABS.ARCHIVE ? (
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <select
+                                        value={task.status}
+                                        onChange={(e) => updateTask(task.id, 'status', e.target.value)}
+                                        className={`appearance-none bg-transparent font-semibold border-none rounded py-0 px-1 hover:bg-black/5 cursor-pointer outline-none focus:ring-2 focus:ring-black/20`}
+                                      >
+                                        {STATUSES.map(s => <option key={s} className="text-slate-900">{s}</option>)}
+                                      </select>
+                                      <ArrowRight size={14} className="opacity-50" />
+                                    </div>
+                                  ) : (
+                                    <p className="font-semibold text-sm mb-2">{task.status}</p>
+                                  )}
+
+                                  {activeTab !== TABS.ARCHIVE ? (
+                                    <input
+                                      type="text"
+                                      value={task.notes}
+                                      onChange={(e) => updateTask(task.id, 'notes', e.target.value)}
+                                      placeholder="Add a quick note..."
+                                      className="w-full bg-transparent border-none placeholder:opacity-50 text-sm italic outline-none focus:ring-2 focus:ring-black/20 rounded px-1 -ml-1"
+                                    />
+                                  ) : (
+                                    <p className="text-sm italic opacity-80">{task.notes || "No notes."}</p>
+                                  )}
+                                </div>
+                              </div>
                             )}
+                          </div>
+                          {/* Background ID Watermark */}
+                          <div className="absolute right-[-10%] bottom-[-10%] text-[8rem] font-black opacity-5 select-none pointer-events-none tracking-tighter z-0">
+                            {String(task.id).includes('-') ? String(task.id).split('-')[1] : task.id}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Timeline Media Carousel Drawer - Display Mode (Absolute Positioned Bottom) */}
+                      {!isEditing && task.media && task.media.length > 0 && (
+                        <div className={`absolute z-20 bottom-0 left-0 right-0 p-6 pt-4 rounded-t-3xl backdrop-blur-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.15)] transform transition-transform duration-300 translate-y-full group-hover:translate-y-0 ${isDarkBg ? 'bg-white/20 border-t border-white/30' : 'bg-black/10 border-t border-black/10'}`}>
+                          <span className="text-xs uppercase tracking-widest opacity-80 font-bold mb-3 block">Visual Proof ({task.media.length})</span>
+                          <div className="flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-hide">
+                            {task.media.map((item, idx) => (
+                              <img key={idx} src={item} alt="Proof" onClick={() => setLightboxImage(item)} className="cursor-pointer h-24 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0 hover:scale-105 transition-transform" />
+                            ))}
                           </div>
                         </div>
                       )}
-                    </div>
-                    {/* Background ID Watermark */}
-                    <div className="absolute right-[-10%] bottom-[-10%] text-[8rem] font-black opacity-5 select-none pointer-events-none tracking-tighter z-0">
-                      {String(task.id).includes('-') ? String(task.id).split('-')[1] : task.id}
-                    </div>
-                  </>
-                )}
 
-                {/* Timeline Media Carousel Drawer - Display Mode (Absolute Positioned Bottom) */}
-                {!isEditing && task.media && task.media.length > 0 && (
-                  <div className={`absolute z-20 bottom-0 left-0 right-0 p-6 pt-4 rounded-t-3xl backdrop-blur-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.15)] transform transition-transform duration-300 translate-y-full group-hover:translate-y-0 ${isDarkBg ? 'bg-white/20 border-t border-white/30' : 'bg-black/10 border-t border-black/10'}`}>
-                    <span className="text-xs uppercase tracking-widest opacity-80 font-bold mb-3 block">Visual Proof ({task.media.length})</span>
-                    <div className="flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-hide">
-                      {task.media.map((item, idx) => (
-                        <img key={idx} src={item} alt="Proof" onClick={() => setLightboxImage(item)} className="cursor-pointer h-24 w-auto rounded-lg shadow-sm border border-black/10 snap-start object-cover flex-shrink-0 hover:scale-105 transition-transform" />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Media Uploader / Manager - Edit Mode */}
-                {isEditing && (
-                  <div className={`mt-6 pt-4 border-t ${isDarkBg ? 'border-white/20' : 'border-black/20'}`}>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs uppercase tracking-wider opacity-60 font-semibold">Timeline Media</span>
-                      <label className="cursor-pointer text-xs font-semibold px-3 py-1 bg-black/10 rounded-full hover:bg-black/20 transition-colors">
-                        Add Image
-                        <input type="file" accept="image/*" onChange={handleMediaUpload} className="hidden" />
-                      </label>
-                    </div>
-                    {/* Make sure we instruct them about pasting */}
-                    {(!editForm.media || editForm.media.length === 0) && (
-                      <p className="text-xs opacity-50 italic mb-2">Or paste (Cmd+V) directly anywhere on this card.</p>
-                    )}
-
-                    {editForm.media && editForm.media.length > 0 && (
-                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                        {editForm.media.map((m, i) => (
-                          <div key={i} className="relative group/media flex-shrink-0">
-                            <img src={m} alt="" className="h-16 w-16 object-cover rounded shadow-sm opacity-90 group-hover/media:opacity-100" />
-                            <button
-                              onClick={() => setEditForm(prev => ({ ...prev, media: prev.media.filter((_, index) => index !== i) }))}
-                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:scale-110 opacity-0 group-hover/media:opacity-100 transition-all text-xs z-10"
-                            >
-                              ×
-                            </button>
+                      {/* Media Uploader / Manager - Edit Mode */}
+                      {isEditing && (
+                        <div className={`mt-6 pt-4 border-t ${isDarkBg ? 'border-white/20' : 'border-black/20'}`}>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs uppercase tracking-wider opacity-60 font-semibold">Timeline Media</span>
+                            <label className="cursor-pointer text-xs font-semibold px-3 py-1 bg-black/10 rounded-full hover:bg-black/20 transition-colors">
+                              Add Image
+                              <input type="file" accept="image/*" onChange={handleMediaUpload} className="hidden" />
+                            </label>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                          {/* Make sure we instruct them about pasting */}
+                          {(!editForm.media || editForm.media.length === 0) && (
+                            <p className="text-xs opacity-50 italic mb-2">Or paste (Cmd+V) directly anywhere on this card.</p>
+                          )}
+
+                          {editForm.media && editForm.media.length > 0 && (
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                              {editForm.media.map((m, i) => (
+                                <div key={i} className="relative group/media flex-shrink-0">
+                                  <img src={m} alt="" className="h-16 w-16 object-cover rounded shadow-sm opacity-90 group-hover/media:opacity-100" />
+                                  <button
+                                    onClick={() => setEditForm(prev => ({ ...prev, media: prev.media.filter((_, index) => index !== i) }))}
+                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow hover:scale-110 opacity-0 group-hover/media:opacity-100 transition-all text-xs z-10"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                    </div>
+                  </SortableItem>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
 
         {/* Lightbox Modal */}
         {lightboxImage && (
