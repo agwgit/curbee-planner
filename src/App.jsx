@@ -140,6 +140,7 @@ function MainApp() {
   const [editForm, setEditForm] = useState({});
   const [passwordFieldShake, setPasswordFieldShake] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Synchronous local backup (useful for aggressive offline recovery if needed)
   useEffect(() => {
@@ -247,6 +248,7 @@ function MainApp() {
 
   const uploadToSupabase = async (file) => {
     try {
+      setIsUploading(true);
       // 1. Generate unique file name
       const fileExt = file.name ? file.name.split('.').pop() : 'png';
       const fileName = `${uuidv4()}.${fileExt}`;
@@ -273,6 +275,8 @@ function MainApp() {
     } catch (error) {
       console.error('Error uploading image to Supabase Storage:', error);
       alert('Failed to upload image. Make sure the "proofs" Storage bucket exists and is public.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -378,8 +382,26 @@ function MainApp() {
       </div>
     );
   }
+
   return (
-    <div className="min-h-screen bg-[#F5F5F0] text-slate-900 font-sans p-6 md:p-12 selection:bg-black selection:text-white overflow-x-hidden">
+    <div className="min-h-screen bg-[#F5F5F0] text-slate-900 font-sans p-6 md:p-12 selection:bg-black selection:text-white overflow-x-hidden relative">
+
+      {/* Uploading Overlay */}
+      {isUploading && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md">
+          <div className="bg-[#F5F5F0] text-slate-900 p-8 rounded-3xl shadow-2xl flex flex-col items-center border border-white/20">
+            <div className="mb-6 h-10 w-auto animate-pulse opacity-50">
+              <img src="/logo.png" alt="Curbee" className="h-full w-auto object-contain" />
+            </div>
+            <h3 className="text-xl font-medium tracking-tight mb-4">Uploading Proof...</h3>
+            <div className="flex gap-2">
+              <div className="w-2 h-2 rounded-full bg-curbee-teal-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-2 h-2 rounded-full bg-curbee-orange-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-2 h-2 rounded-full bg-curbee-amber-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <header className="max-w-[1400px] mx-auto mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6">
